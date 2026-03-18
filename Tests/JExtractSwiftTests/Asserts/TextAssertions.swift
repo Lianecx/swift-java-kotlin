@@ -222,6 +222,146 @@ func assertOutput(
   }
 }
 
+func assertKotlinOutput(
+  dump: Bool = false,
+  input: String,
+  kotlinPackage: String = "com.example.swift",
+  swiftModuleName: String = "SwiftModule",
+  detectChunkByInitialLines _detectChunkByInitialLines: Int = 4,
+  expectedChunks: [String],
+  notExpectedChunks: [String] = [],
+  fileID: String = #fileID,
+  filePath: String = #filePath,
+  line: Int = #line,
+  column: Int = #column
+) throws {
+  var config = Configuration()
+  config.swiftModule = swiftModuleName
+  config.targetLanguage = .kotlinJvm
+  let translator = Swift2JavaTranslator(config: config)
+
+  try! translator.analyze(path: "/fake/Fake.swiftinterface", text: input)
+
+  var printer: CodePrinter = CodePrinter(mode: .accumulateAll)
+  let generator = KotlinSwift2KotlinGenerator(
+    config: config,
+    translator: translator,
+    kotlinPackage: kotlinPackage,
+    outputKotlinDirectory: "/fake"
+  )
+  try generator.writeKotlinSources(&printer)
+  let output = printer.finalize()
+
+  let sourceLocation = SourceLocation(fileID: fileID, filePath: filePath, line: line, column: column)
+  for notExpectedChunk in notExpectedChunks {
+    #expect(
+      !output.contains(notExpectedChunk),
+      "Output must not contain:\n\(notExpectedChunk)\n\nGot output:\n\(output)",
+      sourceLocation: sourceLocation
+    )
+  }
+
+  let gotLines = output.split(separator: "\n").filter { l in
+    l.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).count > 0
+  }
+  for expectedChunk in expectedChunks {
+    let expectedLines = expectedChunk.split(separator: "\n")
+    let detectChunkByInitialLines = min(expectedLines.count, _detectChunkByInitialLines)
+    precondition(detectChunkByInitialLines > 0, "Chunk size to detect cannot be zero lines!")
+
+    var matchingOutputOffset: Int? = nil
+    let expectedInitialMatchingLines = expectedLines[0..<min(expectedLines.count, detectChunkByInitialLines)]
+      .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+      .joined(separator: "\n")
+
+    for lineOffset in 0..<gotLines.count where gotLines.count > (lineOffset + detectChunkByInitialLines) {
+      let textLinesAtOffset = gotLines[lineOffset..<lineOffset + detectChunkByInitialLines]
+        .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+        .joined(separator: "\n")
+      if textLinesAtOffset == expectedInitialMatchingLines {
+        matchingOutputOffset = lineOffset
+        break
+      }
+    }
+
+    guard let matchingOutputOffset else {
+      let outputContainsExpectedChunk = output.contains(expectedChunk)
+      #expect(
+        outputContainsExpectedChunk,
+        """
+        \("error: Output did not contain expected chunk!".red)
+        ==== Expected output -----------------------------------------------
+        \(expectedChunk.yellow)
+        ==== Got output ----------------------------------------------------
+        \(output)
+        ==== ---------------------------------------------------------------
+        """,
+        sourceLocation: sourceLocation
+      )
+      continue
+    }
+
+    var diffLineNumbers: [Int] = []
+    var currentExpectedLine: Int = 0
+    var currentGotLine: Int = matchingOutputOffset
+
+    while currentExpectedLine < expectedLines.count {
+      let expectedLine = expectedLines[currentExpectedLine].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+      if expectedLine == "..." {
+        guard currentExpectedLine != (expectedLines.count - 1) else {
+          break
+        }
+        let nextLine = expectedLines[currentExpectedLine + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        while currentGotLine < gotLines.count {
+          let gottenLine = gotLines[currentGotLine].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+          if gottenLine.commonPrefix(with: nextLine) == nextLine {
+            currentExpectedLine += 2
+            break
+          } else {
+            currentGotLine += 1
+          }
+          if currentGotLine == gotLines.count {
+            diffLineNumbers.append(currentExpectedLine + matchingOutputOffset + 1)
+            break
+          }
+        }
+        currentGotLine += 1
+      } else {
+        guard gotLines.count > currentGotLine else {
+          currentExpectedLine += 1
+          continue
+        }
+        let gottenLine = gotLines[currentGotLine].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if gottenLine.commonPrefix(with: expectedLine) != expectedLine {
+          diffLineNumbers.append(currentExpectedLine + matchingOutputOffset)
+          #expect(gottenLine == expectedLine, sourceLocation: sourceLocation)
+        }
+        currentGotLine += 1
+        currentExpectedLine += 1
+      }
+    }
+
+    if diffLineNumbers.count > 0 || dump {
+      print("")
+      if diffLineNumbers.count > 0 {
+        print("error: Number of not matching lines: \(diffLineNumbers.count)!".red)
+        print("==== Expected output -----------------------------------------------")
+        for (n, e) in expectedLines.enumerated() {
+          let isMismatch = diffLineNumbers.map({ $0 - matchingOutputOffset }).contains(n)
+          let marker = isMismatch ? " // <<<<<<<<<<< mismatch" : ""
+          print("\(n): \(e)\(marker)".yellow(if: isMismatch))
+        }
+      }
+      print("==== Got output ----------------------------------------------------")
+      for (n, g) in gotLines.enumerated() where n >= matchingOutputOffset {
+        print("\(n): \(g)")
+      }
+      print("==== ---------------------------------------------------------------\n")
+    }
+  }
+}
+
 func assertOutput(
   dump: Bool = false,
   _ got: String,
