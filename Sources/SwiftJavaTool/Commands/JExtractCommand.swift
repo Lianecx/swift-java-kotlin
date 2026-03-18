@@ -42,6 +42,9 @@ extension SwiftJava {
     @Option(help: "The mode of generation to use for the output files. Used with jextract mode.")
     var mode: JExtractGenerationMode?
 
+    @Option(help: "The target language for generated code: java (default) or kotlin-jvm.")
+    var lang: JExtractTargetLanguage?
+
     @Option(help: "The name of the Swift module into which the resulting Swift types will be generated.")
     var swiftModule: String
 
@@ -105,6 +108,7 @@ extension SwiftJava.JExtractCommand {
   func runSwiftJavaCommand(config: inout Configuration) async throws {
     configure(&config.javaPackage, overrideWith: self.javaPackage)
     configure(&config.mode, overrideWith: self.mode)
+    configure(&config.targetLanguage, overrideWith: self.lang)
     config.swiftModule = self.effectiveSwiftModule
     config.outputJavaDirectory = outputJava
     config.outputSwiftDirectory = outputSwift
@@ -176,6 +180,7 @@ struct IllegalModeCombinationError: Error {
 }
 
 extension JExtractGenerationMode: ExpressibleByArgument {}
+extension JExtractTargetLanguage: ExpressibleByArgument {}
 extension JExtractMinimumAccessLevelMode: ExpressibleByArgument {}
 extension JExtractMemoryManagementMode: ExpressibleByArgument {}
 extension JExtractAsyncFuncMode: ExpressibleByArgument {}

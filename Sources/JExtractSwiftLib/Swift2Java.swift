@@ -85,6 +85,18 @@ public struct SwiftToJava {
 
     try translator.analyze()
 
+    if config.effectiveTargetLanguage == .kotlinJvm {
+      let generator = KotlinSwift2KotlinGenerator(
+        config: self.config,
+        translator: translator,
+        kotlinPackage: config.javaPackage ?? "",
+        outputKotlinDirectory: outputJavaDirectory
+      )
+      try generator.generate()
+      print("[swift-java] Generated Kotlin stubs for Swift module '\(swiftModule)': " + "done.".green)
+      return
+    }
+
     switch config.effectiveMode {
     case .ffm:
       let generator = FFMSwift2JavaGenerator(
